@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KeywordSpy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="popup.css"/>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="8" cy="8" r="5" stroke="#38bdf8" stroke-width="1.5"/>
+          <line x1="12" y1="12" x2="17" y2="17" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round"/>
+          <rect x="2" y="14" width="6" height="1.5" rx="0.75" fill="#818cf8" opacity="0.8"/>
+          <rect x="2" y="16.5" width="4" height="1.5" rx="0.75" fill="#38bdf8" opacity="0.6"/>
+        </svg>
+        <span class="logo-text">KeywordSpy</span>
+      </div>
+      <div class="header-actions">
+        <button id="btn-compare" class="btn-icon" title="Compare Groups">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="6" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="3" width="6" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="8" x2="9" y2="8" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button id="btn-settings" class="btn-icon" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.42 1.42M11.53 11.53l1.42 1.42M3.05 12.95l1.42-1.42M11.53 4.47l1.42-1.42" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Current Page Bar -->
+    <div id="current-page-bar" class="current-page-bar">
+      <div class="current-page-info">
+        <span id="current-domain" class="current-domain">Loading…</span>
+        <span id="current-badge" class="badge"></span>
+      </div>
+      <div class="current-page-actions">
+        <span id="current-kw-count" class="kw-count"></span>
+        <button id="btn-add-to-group" class="btn-sm">Add to Group</button>
+      </div>
+    </div>
+
+    <!-- Main Views -->
+    <div id="view-main" class="view active">
+      <!-- Groups Section -->
+      <div class="section-header">
+        <span class="section-title">GROUPS</span>
+        <button id="btn-new-group" class="btn-sm btn-accent">+ New</button>
+      </div>
+      <div id="groups-container" class="groups-container">
+        <div class="empty-state">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" opacity="0.3"><rect x="4" y="8" width="10" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/><rect x="18" y="8" width="10" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+          <p>No groups yet.<br/>Create one to start tracking.</p>
+        </div>
+      </div>
+
+      <div class="footer-actions">
+        <button id="btn-export-all" class="btn-sm">Export All</button>
+      </div>
+    </div>
+
+    <!-- Domain Detail View -->
+    <div id="view-domain" class="view">
+      <div class="view-header">
+        <button class="btn-back" id="btn-back-from-domain">← Back</button>
+        <span id="domain-view-title" class="view-title"></span>
+        <button id="btn-export-domain" class="btn-sm">Export</button>
+      </div>
+      <div class="keyword-controls">
+        <input type="text" id="kw-search" class="kw-search" placeholder="Filter keywords…"/>
+        <select id="kw-sort" class="kw-sort">
+          <option value="frequency">Frequency</option>
+          <option value="alpha">A–Z</option>
+          <option value="source">Source</option>
+          <option value="date">Date Added</option>
+        </select>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="keywords">Keywords</button>
+        <button class="tab" data-tab="metadata">Metadata</button>
+      </div>
+      <div id="tab-keywords" class="tab-content active">
+        <div id="keyword-list" class="keyword-list"></div>
+      </div>
+      <div id="tab-metadata" class="tab-content">
+        <div id="metadata-panel" class="metadata-panel"></div>
+      </div>
+    </div>
+
+    <!-- Compare View -->
+    <div id="view-compare" class="view">
+      <div class="view-header">
+        <button class="btn-back" id="btn-back-from-compare">← Back</button>
+        <span class="view-title">Compare</span>
+      </div>
+      <div class="compare-selector">
+        <p class="compare-hint">Select 2–4 groups to compare:</p>
+        <div id="compare-checkboxes" class="compare-checkboxes"></div>
+        <button id="btn-run-compare" class="btn-accent btn-block">Run Comparison</button>
+      </div>
+      <div id="compare-results" class="compare-results" style="display:none"></div>
+    </div>
+
+    <!-- Settings View -->
+    <div id="view-settings" class="view">
+      <div class="view-header">
+        <button class="btn-back" id="btn-back-from-settings">← Back</button>
+        <span class="view-title">Settings</span>
+      </div>
+      <div class="settings-content">
+        <div class="setting-item">
+          <label class="setting-label">Auto-capture App Store pages</label>
+          <label class="toggle">
+            <input type="checkbox" id="setting-auto-appstore" checked/>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-item">
+          <label class="setting-label">Min keyword frequency</label>
+          <input type="number" id="setting-min-freq" class="setting-input" value="2" min="1" max="20"/>
+        </div>
+        <div class="setting-item danger">
+          <label class="setting-label">Clear all data</label>
+          <button id="btn-clear-all" class="btn-sm btn-danger">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Group Modal -->
+    <div id="modal-new-group" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3 class="modal-title">New Competitor Group</h3>
+        <input type="text" id="input-group-name" class="modal-input" placeholder="e.g. Fitness Apps"/>
+        <div class="modal-actions">
+          <button id="btn-cancel-group" class="btn-sm">Cancel</button>
+          <button id="btn-create-group" class="btn-sm btn-accent">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add to Group Modal -->
+    <div id="modal-add-domain" class="modal" style="display:none">
+      <div class="modal-content">
+        <h3 class="modal-title">Add to Group</h3>
+        <p id="modal-domain-name" class="modal-subtitle"></p>
+        <div id="group-select-list" class="group-select-list"></div>
+        <div class="modal-actions">
+          <button id="btn-cancel-add" class="btn-sm">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay -->
+    <div id="overlay" class="overlay" style="display:none"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
