@@ -279,13 +279,11 @@ function renderMetadata() {
 function renderCompareView() {
   const checks = document.getElementById('compare-checkboxes');
   checks.innerHTML = state.groups.map(g => `
-    <label class="compare-checkbox-item" data-group="${esc(g.id)}">
-      <input type="checkbox" value="${esc(g.id)}"/>
+    <div class="compare-checkbox-item" data-group="${esc(g.id)}">
       <div class="compare-check-indicator"></div>
       <span>${esc(g.name)} (${(g.domains || []).length} domains)</span>
-    </label>`).join('');
+    </div>`).join('');
 
-  // Restore previous selections on click
   checks.querySelectorAll('.compare-checkbox-item').forEach(item => {
     item.addEventListener('click', () => {
       item.classList.toggle('selected');
