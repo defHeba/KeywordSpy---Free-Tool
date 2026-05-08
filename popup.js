@@ -13,6 +13,7 @@ let state = {
   activeGroupId: null,
   kwFilter: '',
   kwSort: 'frequency',
+  myBrandGroupId: null,
   settings: { autoAppStore: true, minFreq: 2 }
 };
 
@@ -277,54 +278,56 @@ function renderMetadata() {
 }
 
 function renderCompareView() {
+  state.myBrandGroupId = null; // reset on each open
   const checks = document.getElementById('compare-checkboxes');
   checks.innerHTML = state.groups.map(g => `
     <div class="compare-checkbox-item" data-group="${esc(g.id)}">
       <div class="compare-check-indicator"></div>
-      <span>${esc(g.name)} (${(g.domains || []).length} domains)</span>
+      <span class="compare-item-name">${esc(g.name)} <span class="compare-item-count">(${(g.domains || []).length} domains)</span></span>
+      <button class="compare-brand-btn" data-group="${esc(g.id)}" title="Mark as My Brand for gap analysis">☆</button>
     </div>`).join('');
 
   checks.querySelectorAll('.compare-checkbox-item').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('.compare-brand-btn')) return; // handled below
       item.classList.toggle('selected');
       const ind = item.querySelector('.compare-check-indicator');
       ind.textContent = item.classList.contains('selected') ? '✓' : '';
-      updateBrandSelector();
+      // If deselecting the brand group, clear the brand
+      if (!item.classList.contains('selected') && item.dataset.group === state.myBrandGroupId) {
+        state.myBrandGroupId = null;
+        item.querySelector('.compare-brand-btn').textContent = '☆';
+        item.querySelector('.compare-brand-btn').classList.remove('active');
+      }
+    });
+  });
+
+  checks.querySelectorAll('.compare-brand-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const groupId = btn.dataset.group;
+      if (state.myBrandGroupId === groupId) {
+        // Toggle off
+        state.myBrandGroupId = null;
+        btn.textContent = '☆';
+        btn.classList.remove('active');
+      } else {
+        // Set as brand — also auto-select this group
+        state.myBrandGroupId = groupId;
+        const item = btn.closest('.compare-checkbox-item');
+        item.classList.add('selected');
+        item.querySelector('.compare-check-indicator').textContent = '✓';
+        // Reset all brand buttons, activate only this one
+        checks.querySelectorAll('.compare-brand-btn').forEach(b => {
+          b.textContent = b.dataset.group === groupId ? '★' : '☆';
+          b.classList.toggle('active', b.dataset.group === groupId);
+        });
+      }
     });
   });
 
   document.getElementById('compare-results').style.display = 'none';
-  // Hide export button until results exist
-  const exportBtn = document.getElementById('btn-export-compare');
-  if (exportBtn) exportBtn.style.display = 'none';
-  updateBrandSelector();
   switchView('compare');
-}
-
-function updateBrandSelector() {
-  const selected = [...document.querySelectorAll('.compare-checkbox-item.selected')];
-  const brandRow = document.getElementById('brand-selector-row');
-  const brandSelect = document.getElementById('brand-select');
-  if (!brandRow || !brandSelect) return;
-
-  if (selected.length < 2) {
-    brandRow.style.display = 'none';
-    return;
-  }
-
-  brandRow.style.display = 'flex';
-  const currentVal = brandSelect.value;
-  brandSelect.innerHTML = `<option value="">— none (first group) —</option>` +
-    selected.map(el => {
-      const id = el.dataset.group;
-      const g = state.groups.find(g => g.id === id);
-      return g ? `<option value="${esc(id)}">${esc(g.name)}</option>` : '';
-    }).join('');
-
-  // Restore previous selection if still valid
-  if (currentVal && brandSelect.querySelector(`option[value="${currentVal}"]`)) {
-    brandSelect.value = currentVal;
-  }
 }
 
 function runComparison() {
@@ -334,13 +337,7 @@ function runComparison() {
     return;
   }
 
-  // Determine "my brand" group — user-selected or default to first
-  const brandSelect = document.getElementById('brand-select');
-  const myBrandId = (brandSelect && brandSelect.value) ? brandSelect.value : selected[0];
-  // Reorder so my brand is always first
-  const orderedSelected = [myBrandId, ...selected.filter(id => id !== myBrandId)];
-
-  const groups = orderedSelected.map(id => state.groups.find(g => g.id === id)).filter(Boolean);
+  const groups = selected.map(id => state.groups.find(g => g.id === id)).filter(Boolean);
   const groupKws = groups.map(g => {
     const allKws = {};
     for (const d of (g.domains || [])) {
@@ -364,21 +361,22 @@ function runComparison() {
     return Object.keys(gk.keywords).filter(kw => others.every(s => !s.has(kw))).slice(0, 40);
   });
 
-  // Gap: keywords competitors use that MY BRAND doesn't
-  const myGroup = groupKws[0]; // always my brand after reordering
+  // Gap: use the ★ brand group as reference; fall back to first group with a warning
+  const brandId = state.myBrandGroupId && selected.includes(state.myBrandGroupId)
+    ? state.myBrandGroupId : null;
+  const myGroupIndex = brandId
+    ? groupKws.findIndex(gk => gk.group.id === brandId)
+    : 0;
+  const myGroup = groupKws[myGroupIndex] || groupKws[0];
+
   const gaps = [];
-  for (let i = 1; i < groupKws.length; i++) {
+  for (let i = 0; i < groupKws.length; i++) {
+    if (i === myGroupIndex) continue; // skip my brand
     const compKws = Object.keys(groupKws[i].keywords);
     compKws.filter(kw => !myGroup.keywords[kw]).forEach(kw => {
       if (!gaps.includes(kw)) gaps.push(kw);
     });
   }
-  // Sort gaps by total competitor frequency (highest = most opportunity)
-  gaps.sort((a, b) => {
-    const freqA = groupKws.slice(1).reduce((s, gk) => s + (gk.keywords[a] || 0), 0);
-    const freqB = groupKws.slice(1).reduce((s, gk) => s + (gk.keywords[b] || 0), 0);
-    return freqB - freqA;
-  });
 
   // Heatmap: top 20 keywords across all
   const allFreqs = {};
@@ -392,13 +390,7 @@ function runComparison() {
   const resultsEl = document.getElementById('compare-results');
   resultsEl.style.display = 'block';
 
-  // Store last comparison data for export
-  state.lastComparison = { groups, groupKws, shared, unique, gaps, heatmapKws, allFreqs, myBrandName: groups[0].name };
-
   let html = '';
-
-  // My brand label
-  html += `<div class="compare-brand-label">📍 Your Brand: <strong>${esc(groups[0].name)}</strong></div>`;
 
   // Shared
   html += `<div class="compare-section-header">SHARED (${shared.length})</div>
@@ -406,14 +398,15 @@ function runComparison() {
 
   // Unique per group
   groups.forEach((g, i) => {
-    const label = i === 0 ? `YOUR STRENGTHS — ${esc(g.name).toUpperCase()}` : `UNIQUE TO: ${esc(g.name).toUpperCase()}`;
-    html += `<div class="compare-section-header">${label} (${unique[i].length})</div>
-    <div class="compare-kw-grid">${unique[i].slice(0,40).map(kw => `<span class="compare-kw-chip ${i === 0 ? 'unique-mine' : 'unique'}">${esc(kw)}</span>`).join('')}</div>`;
+    const isBrand = groupKws[i].group.id === myGroup.group.id;
+    html += `<div class="compare-section-header">UNIQUE TO: ${esc(g.name).toUpperCase()}${isBrand ? ' ★' : ''} (${unique[i].length})</div>
+    <div class="compare-kw-grid">${unique[i].slice(0,40).map(kw => `<span class="compare-kw-chip unique">${esc(kw)}</span>`).join('')}</div>`;
   });
 
   // Gap
   if (gaps.length) {
-    html += `<div class="compare-section-header">🎯 GAP ANALYSIS — ${esc(groups[0].name).toUpperCase()} IS MISSING (${gaps.length})</div>
+    const gapNote = brandId ? '' : ' — <span style="color:var(--accent-orange);font-size:8px">TIP: ★ mark your brand above for accuracy</span>';
+    html += `<div class="compare-section-header">GAP ANALYSIS — ${esc(myGroup.group.name).toUpperCase()} IS MISSING (${gaps.length})${gapNote}</div>
     <div class="compare-kw-grid">${gaps.slice(0,50).map(kw => `<span class="compare-kw-chip gap">${esc(kw)}</span>`).join('')}</div>`;
   }
 
@@ -433,11 +426,6 @@ function runComparison() {
   });
 
   resultsEl.innerHTML = html;
-
-  // Show export button
-  const exportBtn = document.getElementById('btn-export-compare');
-  if (exportBtn) exportBtn.style.display = 'inline-block';
-
   document.getElementById('compare-selector') && (document.querySelector('.compare-selector').style.display = 'none');
 }
 
@@ -538,7 +526,6 @@ function setupEventListeners() {
 
   // Compare
   document.getElementById('btn-run-compare').addEventListener('click', runComparison);
-  document.getElementById('btn-export-compare').addEventListener('click', exportComparison);
 
   // Settings
   document.getElementById('setting-auto-appstore').addEventListener('change', saveSettings);
@@ -653,113 +640,7 @@ function exportDomain() {
   downloadCSV(rows, `keywordspy-${state.activeDomainKey}.csv`);
 }
 
-function exportComparison() {
-  const c = state.lastComparison;
-  if (!c) return;
-
-  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const colors = ['#38bdf8', '#818cf8', '#34d399', '#fb923c'];
-
-  const chipStyle = (color) => `display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;margin:2px;background:${color}22;color:${color};border:1px solid ${color}55;font-family:monospace`;
-
-  const chipsHtml = (kws, color) =>
-    kws.map(kw => `<span style="${chipStyle(color)}">${kw}</span>`).join('');
-
-  // Heatmap table
-  const maxTotal = Math.max(1, ...c.heatmapKws.map(kw => c.allFreqs[kw] || 0));
-  let heatmapRows = c.heatmapKws.map(kw => {
-    const cells = c.groupKws.map((gk, i) => {
-      const freq = gk.keywords[kw] || 0;
-      const pct = Math.round((freq / maxTotal) * 100);
-      const opacity = freq ? (0.2 + (pct / 100) * 0.8) : 0.06;
-      return `<td style="text-align:center;padding:6px 10px;background:${colors[i % colors.length]}${Math.round(opacity*255).toString(16).padStart(2,'0')};color:#fff;font-weight:${freq?'600':'400'};font-size:12px">${freq || '—'}</td>`;
-    }).join('');
-    return `<tr><td style="padding:6px 12px;font-family:monospace;font-size:12px;color:#334155;border-right:1px solid #e2e8f0">${kw}</td>${cells}</tr>`;
-  }).join('');
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>KeywordSpy — Comparison Report</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px; color: #1e293b; background: #f8fafc; }
-  .report-header { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 32px 36px; border-radius: 12px; margin-bottom: 32px; }
-  .report-header h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: -0.5px; }
-  .report-header p { margin: 0; opacity: 0.7; font-size: 13px; }
-  .brand-badge { display: inline-block; background: #38bdf822; color: #38bdf8; border: 1px solid #38bdf855; padding: 4px 14px; border-radius: 20px; font-size: 12px; margin-top: 12px; font-weight: 600; }
-  .section { background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }
-  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #64748b; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9; }
-  .gap-box { background: #fff7ed; border: 1px solid #fdba7455; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px; }
-  .gap-box .section-title { color: #c2410c; border-color: #fed7aa; }
-  .gap-note { font-size: 12px; color: #92400e; margin-bottom: 12px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { padding: 8px 12px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; color: #fff; }
-  tr:nth-child(even) { background: #f8fafc; }
-  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; }
-  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
-  .footer { text-align: center; color: #94a3b8; font-size: 11px; margin-top: 32px; padding-bottom: 32px; }
-</style>
-</head>
-<body>
-<div class="report-header">
-  <h1>🔍 KeywordSpy — Competitive Analysis Report</h1>
-  <p>Generated on ${date}</p>
-  <div class="brand-badge">📍 Your Brand: ${c.myBrandName}</div>
-</div>
-
-<div class="section">
-  <div class="section-title">Groups Compared</div>
-  <div class="legend">
-    ${c.groups.map((g, i) => `<div class="legend-item"><div class="legend-dot" style="background:${colors[i]}"></div><strong>${g.name}</strong>${i === 0 ? ' (Your Brand)' : ''} — ${(g.domains||[]).length} domains</div>`).join('')}
-  </div>
-</div>
-
-<div class="section">
-  <div class="section-title">Shared Keywords (${c.shared.length})</div>
-  ${chipsHtml(c.shared, '#64748b')}
-</div>
-
-${c.groups.map((g, i) => `
-<div class="section">
-  <div class="section-title">${i === 0 ? '💪 Your Strengths — ' : 'Unique to: '}${g.name} (${c.unique[i].length})</div>
-  ${chipsHtml(c.unique[i].slice(0, 40), colors[i])}
-</div>`).join('')}
-
-${c.gaps.length ? `
-<div class="gap-box">
-  <div class="section-title">🎯 Gap Analysis — ${c.myBrandName} Is Missing These (${c.gaps.length})</div>
-  <p class="gap-note">These keywords appear in competitor content but not in yours — sorted by competitor frequency (highest opportunity first).</p>
-  ${chipsHtml(c.gaps.slice(0, 60), '#f97316')}
-</div>` : ''}
-
-<div class="section">
-  <div class="section-title">Frequency Heatmap — Top 20 Keywords</div>
-  <div class="legend">${c.groups.map((g, i) => `<div class="legend-item"><div class="legend-dot" style="background:${colors[i]}"></div>${g.name}${i===0?' (You)':''}</div>`).join('')}</div>
-  <table>
-    <thead>
-      <tr>
-        <th style="text-align:left;background:#334155;padding:8px 12px">Keyword</th>
-        ${c.groups.map((g, i) => `<th style="background:${colors[i]}">${g.name}${i===0?' ★':''}</th>`).join('')}
-      </tr>
-    </thead>
-    <tbody>${heatmapRows}</tbody>
-  </table>
-</div>
-
-<div class="footer">Generated by KeywordSpy • ${date}</div>
-</body>
-</html>`;
-
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `keywordspy-comparison-${Date.now()}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+function downloadCSV(rows, filename) {
   const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
